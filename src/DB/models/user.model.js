@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { genderEnum, providerEnum, roleEnum } from "../../common/enum/user.enum.js";
 
 const userSchema = new mongoose.Schema({
 
@@ -29,13 +30,13 @@ const userSchema = new mongoose.Schema({
         type: String,
         trim: true,
         required: function () {
-            return this.provider == "system" ? true : false
+            return this.provider == providerEnum.system ? true : false
         }
     },
     age: {
         type: Number,
         required: function () {
-            return this.provider == "system" ? true : false
+            return this.provider == providerEnum.system ? true : false
         },
         min: 18,
         max: 60
@@ -45,16 +46,21 @@ const userSchema = new mongoose.Schema({
     },
     gender: {
         type: String,
-        enum: ["male", "female"],
-        default: "male"
+        enum: Object.values(genderEnum),
+        default: genderEnum.male
     },
     profileImage: {
         type: String
     },
+    role: {
+        type: String,
+        enum: Object.values(roleEnum),
+        default: roleEnum.user
+    },
     provider: {
         type: String,
-        enum: ["system", "google"],
-        default: "system"
+        enum: Object.values(providerEnum),
+        default: providerEnum.system
     },
     isConfirmed: {
         type: Boolean,
