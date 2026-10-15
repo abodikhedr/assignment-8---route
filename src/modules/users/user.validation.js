@@ -1,26 +1,58 @@
 import Joi from "joi";
+import { generalRules } from "../../common/utils/generalRules.js";
+
 
 
 
 export const signUpSchema = {
     body: Joi.object({
-        fName: Joi.string().min(2).max(10).required(),
-        lName: Joi.string().min(2).max(10).required(),
-        email: Joi.string().email().required(),
-        password: Joi.string().required(),
-        age: Joi.number().min(18).max(60).required(),
-        phone: Joi.number(),
-        gender: Joi.string().valid("male", "female"),
+        fName: generalRules.fName.required(),
+        lName: generalRules.lName.required(),
+        email: generalRules.email.required(),
+        password: generalRules.password.required(),
+        cPassword: Joi.string().valid(Joi.ref("password")).required(),
+        age: generalRules.age.required(),
+        phone: generalRules.phone,
+        gender: generalRules.gender,
     }).required(),
 
-    query: Joi.object({
-        flag: Joi.boolean()
-    })
+    files: Joi.object({
+        attachments: Joi.array().items(generalRules.file.required()).required(),
+        attachment: Joi.array().items(generalRules.file.required()).required(),
+    }).required(),
 }
 
 export const signInSchema = {
     body: Joi.object({
-        email: Joi.string().email().required(),
-        password: Joi.string().required(),
+        email: generalRules.email.required(),
+        password: generalRules.password.required(),
+    }).required(),
+}
+
+export const refreshTokenSchema = {
+    headers: generalRules.token.required()
+}
+
+export const shareProfileSchema = {
+    params: Joi.object({
+        id: generalRules.id.required()
+    }).required(),
+}
+
+export const updateProfileSchema = {
+    body: Joi.object({
+        fName: generalRules.fName,
+        lName: generalRules.lName,
+        age: generalRules.age,
+        phone: generalRules.phone,
+        gender: generalRules.gender,
+    }).required(),
+}
+export const updatePasswordSchema = {
+    body: Joi.object({
+        old_password:generalRules.password.required(),
+        new_password:generalRules.password.required(),
+        cPassword: Joi.string().valid(Joi.ref("new_password")).required(),
+
     }).required(),
 }
