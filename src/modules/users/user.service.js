@@ -6,7 +6,10 @@ import jwt from "jsonwebtoken"
 import { OAuth2Client } from 'google-auth-library'
 import { providerEnum } from "../../common/enum/user.enum.js"
 import { randomUUID } from "crypto"
-import { deleteKey, keys, setValue } from "../../DB/service/redis.service.js"
+import { deleteKey, getValue, incr, keys, setValue, ttl } from "../../DB/service/redis.service.js"
+import { generate_otp, sendEmail } from "../../common/services/sendEmail.js"
+import { eventEmitter } from "../../common/utils/events.js"
+import { sendEmailOtp } from "./user.helper.js"
 const client = new OAuth2Client();
 
 
@@ -20,6 +23,29 @@ export const signup = async (req, res, next) => {
         paths.push(file.path)
         console.log({ file });
     }
+    const otp = await generate_otp()
+    const hashOtp = await hash(otp, 12)
+    await setValue({
+        key: `otp::${email}`,
+        value: hashOtp,
+        ttl: 60 * 2
+    })
+    await setValue({
+        key: `otp::max::${email}`,
+        value: 1,
+        ttl: 60 * 5
+    })
+
+    eventEmitter.emit("confirm_email", async () => {
+        await sendEmail({
+            to: email,
+            subject: "confirm email",
+            html: `<h1>otp::${otp}<h1>`
+        })
+    }
+    )
+
+
     const user = await dbService.create({
         model: userModel,
         data: {
@@ -37,7 +63,15 @@ export const signup = async (req, res, next) => {
     })
     res.status(201).json({ message: "account created successfully", user })
 }
-
+//================resendOtp================
+export const resendOtp = async (req, res, next) => {
+    const { email } = req.body
+    await sendEmailOtp({
+        email:email,
+        isConfirmed:false
+    })
+    res.status(201).json({ message: "otp resent successfully"})
+}
 //================sign up with gmail================
 export const signupWithGmail = async (req, res, next) => {
 
@@ -95,7 +129,33 @@ export const signupWithGmail = async (req, res, next) => {
 
 
 }
+//================confirmOtp================
+export const confirmOtp = async (req, res, next) => {
 
+    const { email, otp } = req.body
+    const otpValue = await getValue(`otp::${email}`)
+    if (!otpValue) {
+        throw new Error("otp expired");
+    }
+    if (! await compare(otp, otpValue)) {
+        throw new Error("inValid otp");
+    }
+    const user = await dbService.findOneAndUpdate({
+        model: userModel,
+        filter: {
+            email,
+            isConfirmed: false
+        },
+        update: {
+            isConfirmed: true
+        }
+    })
+    if (!user) {
+        throw new Error("user doesnt exist or already confirmed");
+    }
+    deleteKey(`otp::${email}`)
+    res.status(200).json({ message: "email confirmed", user },)
+}
 //================sign in================
 export const signin = async (req, res, next) => {
     const tokenId = randomUUID()
@@ -111,9 +171,9 @@ export const signin = async (req, res, next) => {
     if (!user || ! await compare(password, user.password)) {
         throw new Error("invalid credentials", { cause: 401 })
     }
-    // if (user.isConfirmed == false) {
-    //     throw new Error("user isnt confirmed",{cause:400})
-    // }
+    if (user.isConfirmed == false) {
+        throw new Error("user isnt confirmed", { cause: 400 })
+    }
     const access_token = jwt.sign({
         id: user._id,
         email: user.email,
@@ -138,8 +198,6 @@ export const signin = async (req, res, next) => {
         issuer: "http://localhost:3000",
         jwtid: tokenId
     })
-
-
     res.status(200).json({ message: "successfully signed in", tokens: { access_token, refresh_token } },)
 
 }

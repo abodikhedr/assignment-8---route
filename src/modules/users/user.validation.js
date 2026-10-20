@@ -21,11 +21,22 @@ export const signUpSchema = {
         attachment: Joi.array().items(generalRules.file.required()).required(),
     }).required(),
 }
+export const resendOtpSchema = {
+    body: Joi.object({
+        email: generalRules.email.required()
+    }).required(),
+}
 
 export const signInSchema = {
     body: Joi.object({
         email: generalRules.email.required(),
         password: generalRules.password.required(),
+    }).required(),
+}
+export const confirmOtpSchema = {
+    body: Joi.object({
+        email: generalRules.email.required(),
+        otp: generalRules.otp.required(),
     }).required(),
 }
 

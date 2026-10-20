@@ -12,7 +12,7 @@ export const generalRules = {
     age: Joi.number().min(18).max(60),
     phone: Joi.number(),
     gender: Joi.string().valid("male", "female"),
-
+    otp:Joi.string().pattern(/^[0-9]{6}$/),
     file: Joi.object({
         fieldname: Joi.string().required(),
         originalname: Joi.string().required(),
