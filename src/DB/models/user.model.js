@@ -70,6 +70,10 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    twoStepVerification: {
+        type: Boolean,
+        default: false
+    },
     changeCredentialAt:Date
 
 

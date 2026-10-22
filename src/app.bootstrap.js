@@ -4,6 +4,7 @@ import connectionDB from "./DB/connectionDB.js"
 import userRouter from "./modules/users/user.controller.js"
 import cors from "cors"
 import {redisConnection} from "./DB/connection.redis.js"
+import messageRouter from "./modules/messages/message.controller.js"
 const app = express()
 const port = 3000
 
@@ -20,6 +21,8 @@ const bootstrap = async () => {
     connectionDB()
     redisConnection()
     app.use("/users", userRouter)
+    app.use("/messages", messageRouter)
+
     
     
 

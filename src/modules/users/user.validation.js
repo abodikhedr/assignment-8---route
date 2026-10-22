@@ -26,7 +26,18 @@ export const resendOtpSchema = {
         email: generalRules.email.required()
     }).required(),
 }
-
+export const forgetPasswordSchema = {
+    body: Joi.object({
+        email: generalRules.email.required(),
+    }).required(),
+}
+export const confirmPasswordOtpSchema = {
+    body: Joi.object({
+        email: generalRules.email.required(),
+        otp: generalRules.otp.required(),
+        newPass: generalRules.password.required()
+    }).required(),
+}
 export const signInSchema = {
     body: Joi.object({
         email: generalRules.email.required(),
@@ -39,7 +50,12 @@ export const confirmOtpSchema = {
         otp: generalRules.otp.required(),
     }).required(),
 }
-
+export const confirm2SVSchema = {
+    body: Joi.object({
+        email: generalRules.email.required(),
+        otp: generalRules.otp.required(),
+    }).required(),
+}
 export const refreshTokenSchema = {
     headers: generalRules.token.required()
 }
@@ -61,8 +77,8 @@ export const updateProfileSchema = {
 }
 export const updatePasswordSchema = {
     body: Joi.object({
-        old_password:generalRules.password.required(),
-        new_password:generalRules.password.required(),
+        old_password: generalRules.password.required(),
+        new_password: generalRules.password.required(),
         cPassword: Joi.string().valid(Joi.ref("new_password")).required(),
 
     }).required(),

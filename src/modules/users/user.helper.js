@@ -7,7 +7,7 @@ import { eventEmitter } from "../../common/utils/events.js";
 
 
 
-export const sendEmailOtp = async ({ email, isConfirmed = false }) => {
+export const sendEmailOtp = async ({ email, isConfirmed = false, }) => {
     const isBlocked = await ttl(`otp::block::${email}`)
     if (isBlocked > 0) throw new Error(`you are blocked,you can resend otp after ${isBlocked}`);
     const ttlOtp = await ttl(`otp::${email}`)

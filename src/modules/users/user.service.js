@@ -6,7 +6,7 @@ import jwt from "jsonwebtoken"
 import { OAuth2Client } from 'google-auth-library'
 import { providerEnum } from "../../common/enum/user.enum.js"
 import { randomUUID } from "crypto"
-import { deleteKey, getValue, incr, keys, setValue, ttl } from "../../DB/service/redis.service.js"
+import { deleteKey, exists, getValue, incr, keys, setValue, ttl } from "../../DB/service/redis.service.js"
 import { generate_otp, sendEmail } from "../../common/services/sendEmail.js"
 import { eventEmitter } from "../../common/utils/events.js"
 import { sendEmailOtp } from "./user.helper.js"
@@ -63,15 +63,17 @@ export const signup = async (req, res, next) => {
     })
     res.status(201).json({ message: "account created successfully", user })
 }
+
 //================resendOtp================
 export const resendOtp = async (req, res, next) => {
     const { email } = req.body
     await sendEmailOtp({
-        email:email,
-        isConfirmed:false
+        email: email,
+        isConfirmed: false
     })
-    res.status(201).json({ message: "otp resent successfully"})
+    res.status(201).json({ message: "otp resent successfully" })
 }
+
 //================sign up with gmail================
 export const signupWithGmail = async (req, res, next) => {
 
@@ -129,6 +131,7 @@ export const signupWithGmail = async (req, res, next) => {
 
 
 }
+
 //================confirmOtp================
 export const confirmOtp = async (req, res, next) => {
 
@@ -156,50 +159,86 @@ export const confirmOtp = async (req, res, next) => {
     deleteKey(`otp::${email}`)
     res.status(200).json({ message: "email confirmed", user },)
 }
+
 //================sign in================
 export const signin = async (req, res, next) => {
     const tokenId = randomUUID()
     const { email, password } = req.body
+    const attempts = await getValue(`attempts::${email}`)
+    if (! await exists(`attempts::${email}`)) {
+        await setValue({
+            key: `attempts::${email}`,
+            value: 0,
+            ttl: 5 * 60
+        })
+    }
+    const isBlocked = await ttl(`attempts::block::${email}`)
+    if (isBlocked > 0) {
+        throw new Error(`you have been blocked please try again in ${isBlocked} seconds`);
+    }
+    if (attempts >= 5) {
+        await setValue({
+            key: `attempts::block::${email}`,
+            value: "1",
+            ttl: 5 * 60
+        })
+        throw new Error("reached the maximum number of attempts please try again in 5 minutes");
+    }
     const user = await dbService.findOne({
         model: userModel,
         filter: {
             email: email.toLowerCase(),
             provider: providerEnum.system
-
         }
     })
     if (!user || ! await compare(password, user.password)) {
+        await incr(`attempts::${email}`)
         throw new Error("invalid credentials", { cause: 401 })
     }
     if (user.isConfirmed == false) {
         throw new Error("user isnt confirmed", { cause: 400 })
     }
-    const access_token = jwt.sign({
-        id: user._id,
-        email: user.email,
-        phone: decrypt(user.phone),
-
-
-    }, "test1",
-        {
-            expiresIn: "400s",
+    if (!user.twoStepVerification) {
+        const access_token = jwt.sign({
+            id: user._id,
+            email: user.email,
+            phone: decrypt(user.phone),
+        }, "test1",
+            {
+                expiresIn: "400s",
+                audience: "http://localhost:4000",
+                issuer: "http://localhost:3000",
+                jwtid: tokenId
+            })
+        const refresh_token = jwt.sign({
+            id: user._id,
+            email: user.email,
+            phone: decrypt(user.phone)
+        }, "test2", {
+            expiresIn: "4000s",
             audience: "http://localhost:4000",
             issuer: "http://localhost:3000",
             jwtid: tokenId
-
         })
-    const refresh_token = jwt.sign({
-        id: user._id,
-        email: user.email,
-        phone: decrypt(user.phone)
-    }, "test2", {
-        expiresIn: "4000s",
-        audience: "http://localhost:4000",
-        issuer: "http://localhost:3000",
-        jwtid: tokenId
+        deleteKey(`attempts::${email}`)
+        return res.status(200).json({ message: "successfully signed in", tokens: { access_token, refresh_token } },)
+    }
+    const otp = await generate_otp()
+    const hashOtp = await hash(otp)
+    await setValue({
+        key: `otp::2SV::${email}`,
+        value: hashOtp,
+        ttl: 5 * 60
     })
-    res.status(200).json({ message: "successfully signed in", tokens: { access_token, refresh_token } },)
-
+    eventEmitter.emit("confirm_email", async () => {
+        await sendEmail({
+            to: email,
+            subject: "two step verification otp",
+            html: `<h1>otp:${otp}<h1>`
+        })
+    }
+    )
+    res.status(200).json({ message: "otp sent to your email" })
 }
 
 //================get profile================
@@ -318,3 +357,120 @@ export const logOut = async (req, res, next) => {
     return res.status(200).json({ message: "successfully logged out" })
 }
 
+//================forget password================
+export const forgetPassword = async (req, res, next) => {
+    const { email } = req.body
+    await sendEmailOtp({
+        email: email,
+        isConfirmed: true
+    })
+    return res.status(200).json({ message: "password otp generated successfully" })
+}
+
+//================confirm password================
+export const confirmPasswordOtp = async (req, res, next) => {
+    const { email, otp, newPass } = req.body
+    const hashotp = await getValue(`otp::${email}`)
+    if (!hashotp) {
+        throw new Error("you should forget password first");
+
+    }
+    if (!await compare(otp, hashotp)) {
+        throw new Error("inValid otp");
+    }
+    const user = await dbService.findOneAndUpdate({
+        model: userModel,
+        filter: {
+            email: email,
+            isConfirmed: true
+        },
+        update: {
+            password: await hash(newPass)
+        }
+    })
+    if (!user) {
+        throw new Error("user not found");
+
+    }
+    await deleteKey(`otp::${email}`)
+    return res.status(200).json({ message: "successfully changed password" })
+
+}
+
+//================enable 2 step verfication================
+export const enable2SV = async (req, res, next) => {
+    const user = req.user
+    if (user.twoStepVerification == true) {
+        throw new Error("two step verification already enabled");
+    }
+    user.twoStepVerification = true
+    await user.save()
+    return res.status(200).json({ message: "enabled two step verfication", user })
+}
+
+//================confirm 2 step verfication================
+export const confirm2SV = async (req, res, next) => {
+    const { email, otp } = req.body
+    const isblocked =await ttl(`attempts::block::${email}`)
+    if (isblocked >0) {
+        throw new Error(`you have been blocked please try again in ${isblocked} seconds`);
+    }
+    const attempts = await getValue(`attempts::${email}`)
+    if (! await exists(`attempts::${email}`)) {
+        await setValue({
+            key: `attempts::${email}`,
+            value: 0,
+            ttl: 5 * 60
+        })
+    }
+    if (attempts >= 5) {
+        await setValue({
+            key: `attempts::block::${email}`,
+            value: "1",
+            ttl: 5 * 60
+        })
+        throw new Error("reached the maximum number of attempts please try again in 5 minutes");
+    }
+    const hashOtp = await getValue(`otp::2SV::${email}`)
+    if (!hashOtp) {
+        throw new Error("please resend the otp");
+    }
+    if (! await compare(otp, hashOtp)) {
+        await incr(`attempts::${email}`)
+        throw new Error("inValid otp");
+    }
+    const user = await dbService.findOne({
+        model: userModel,
+        filter: {
+            email: email.toLowerCase(),
+        }
+    })
+    if (!user) {
+        throw new Error("user not found");
+    }
+    const tokenId = randomUUID()
+    const access_token = jwt.sign({
+        id: user._id,
+        email: user.email,
+        phone: decrypt(user.phone),
+    }, "test1",
+        {
+            expiresIn: "400s",
+            audience: "http://localhost:4000",
+            issuer: "http://localhost:3000",
+            jwtid: tokenId
+        })
+    const refresh_token = jwt.sign({
+        id: user._id,
+        email: user.email,
+        phone: decrypt(user.phone)
+    }, "test2", {
+        expiresIn: "4000s",
+        audience: "http://localhost:4000",
+        issuer: "http://localhost:3000",
+        jwtid: tokenId
+    })
+    await deleteKey(`otp::2SV::${email}`)
+    await deleteKey(`attempts::${email}`)
+    return res.status(200).json({ message: "signed in successfully", tokens: { access_token, refresh_token } })
+}
